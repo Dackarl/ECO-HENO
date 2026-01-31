@@ -2,13 +2,14 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import joblib
+
+# Para gráficas (requiere matplotlib en requirements.txt)
 import matplotlib.pyplot as plt
 
 # -----------------------------
 # Config básica
 # -----------------------------
 st.set_page_config(page_title="EcoHeno 1.0", layout="wide")
-
 st.title("EcoHeno 1.0 — Predicción de producción de heno")
 st.caption("Cuadro maestro de decisión: predicción + simulación + visualización ejecutiva.")
 
@@ -18,13 +19,14 @@ st.caption("Cuadro maestro de decisión: predicción + simulación + visualizaci
 @st.cache_resource
 def cargar_modelo():
     modelo = joblib.load("modelo_ecoheno.pkl")
-    columnas = joblib.load("columnas_modelo.pkl")  # lista de columnas con las que entrenaste
+    columnas = joblib.load("columnas_modelo.pkl")  # lista EXACTA de columnas del entrenamiento
     return modelo, columnas
 
 modelo, columnas_modelo = cargar_modelo()
 
 # -----------------------------
-# (Opcional) Cargar df_modelo si existe
+# (Opcional) Cargar dataset de ciclos si existe
+# (si NO lo tienes, no pasa nada)
 # -----------------------------
 @st.cache_data
 def cargar_df_modelo():
@@ -37,7 +39,7 @@ def cargar_df_modelo():
 df_modelo = cargar_df_modelo()
 
 # -----------------------------
-# Sidebar (cuadro maestro)
+# Sidebar — Cuadro maestro
 # -----------------------------
 st.sidebar.header("Cuadro maestro — Variables del ciclo")
 
@@ -57,7 +59,7 @@ dia_final = st.sidebar.slider(
 
 sector = st.sidebar.selectbox(
     "Sector",
-    options=[1,2,3,4,5,6,7,8],
+    options=[1, 2, 3, 4, 5, 6, 7, 8],
     index=0
 )
 
@@ -72,7 +74,7 @@ st.sidebar.divider()
 btn = st.sidebar.button("Predecir")
 
 # -----------------------------
-# Funciones clave
+# Funciones
 # -----------------------------
 def construir_X(prod_corte, dia_final, sector, mes, columnas):
     fila = {
@@ -83,65 +85,77 @@ def construir_X(prod_corte, dia_final, sector, mes, columnas):
     }
     X = pd.DataFrame([fila])
 
-    # Asegurar exactamente las columnas del entrenamiento
+    # asegurar columnas exactas del entrenamiento
     for c in columnas:
         if c not in X.columns:
             X[c] = 0
-
     X = X[columnas]
     return X
 
-def predecir(modelo, X):
+def predecir_escalar(modelo, X):
     pred = modelo.predict(X)
-    # convertir a escalar estable
-    pred = float(pred[0]) if hasattr(pred, "__len__") else float(pred)
-    return pred
+    return float(np.asarray(pred).ravel()[0])
 
-def simular_dias(modelo, prod_corte, sector, mes, columnas, dias=range(1,7)):
+def simular_dias(modelo, prod_corte, sector, mes, columnas, dias=range(1, 7)):
     rows = []
     for d in dias:
         X = construir_X(prod_corte, d, sector, mes, columnas)
-        p = predecir(modelo, X)
-        rows.append({"Dia_Empaque": d, "Produccion_Predicha": p})
+        prod_recuperable = predecir_escalar(modelo, X)
+        rows.append({"Dia_Empaque": d, "Produccion_Recuperable": prod_recuperable})
+
     sim = pd.DataFrame(rows)
-    sim["Perdida_vs_dia1"] = sim["Produccion_Predicha"].iloc[0] - sim["Produccion_Predicha"]
-    sim["Perdida_%"] = (sim["Perdida_vs_dia1"] / sim["Produccion_Predicha"].iloc[0]) * 100
-    sim["Marginal_perdida"] = sim["Produccion_Predicha"].diff() * -1
+
+    # Métricas ejecutivas correctas
+    sim["No_Recuperado"] = float(prod_corte) - sim["Produccion_Recuperable"]
+    sim["Eficiencia_%"] = np.where(
+        float(prod_corte) > 0,
+        (sim["Produccion_Recuperable"] / float(prod_corte)) * 100,
+        0.0
+    )
+
+    # Comparación vs día 1 (para ver el costo de empacar más tarde o más temprano)
+    base_dia1 = sim["Produccion_Recuperable"].iloc[0]
+    sim["Cambio_vs_dia1"] = sim["Produccion_Recuperable"] - base_dia1
+    sim["Cambio_vs_dia1_%"] = np.where(
+        base_dia1 > 0,
+        (sim["Cambio_vs_dia1"] / base_dia1) * 100,
+        0.0
+    )
+
+    # Pérdida marginal (cuánto cambia al pasar al siguiente día)
+    sim["Cambio_marginal"] = sim["Produccion_Recuperable"].diff()
+
     return sim
 
 def plot_line_sim(sim):
     fig = plt.figure()
-    plt.plot(sim["Dia_Empaque"], sim["Produccion_Predicha"], marker="o")
-    plt.title("Impacto del día de empaque en la producción final")
+    plt.plot(sim["Dia_Empaque"], sim["Produccion_Recuperable"], marker="o")
+    plt.title("Impacto del día de empaque en la producción recuperable")
     plt.xlabel("Día de empaque")
-    plt.ylabel("Producción predicha")
+    plt.ylabel("Producción recuperable (predicha)")
     plt.grid(True, alpha=0.3)
     return fig
 
 def plot_importancias(modelo, columnas):
-
     if not hasattr(modelo, "feature_importances_"):
-        return None   # evita que Streamlit explote
+        return None
 
-    imp = pd.Series(
-        modelo.feature_importances_,
-        index=columnas
-    ).sort_values(ascending=False).head(10)
+    imp = pd.Series(modelo.feature_importances_, index=columnas).sort_values(ascending=False).head(10)
 
     fig = plt.figure()
     plt.barh(imp.index[::-1], imp.values[::-1])
-    plt.title("Top variables más influyentes (importancia del modelo)")
+    plt.title("Top 10 variables más influyentes (importancia del modelo)")
     plt.xlabel("Importancia")
     plt.ylabel("Variable")
     plt.grid(True, axis="x", alpha=0.3)
-
     return fig
 
-def plot_bar_conteo_sector(df_modelo):
+def plot_conteo_sector(df_modelo):
     if df_modelo is None or "SECTOR" not in df_modelo.columns:
         return None
 
     conteo = df_modelo["SECTOR"].value_counts().sort_index()
+
     fig = plt.figure()
     plt.bar(conteo.index.astype(str), conteo.values)
     plt.title("Cantidad de ciclos por sector (dataset)")
@@ -150,22 +164,23 @@ def plot_bar_conteo_sector(df_modelo):
     plt.grid(True, axis="y", alpha=0.3)
     return fig
 
-def plot_scatter_real_vs_pred(df_modelo, modelo, columnas):
+def plot_real_vs_pred(df_modelo, modelo, columnas):
     if df_modelo is None:
         return None
+
     req = {"PROD_CORTE", "DIA_FINAL", "SECTOR", "MES", "PROD_FINAL"}
     if not req.issubset(set(df_modelo.columns)):
         return None
 
     X = df_modelo[["PROD_CORTE", "DIA_FINAL", "SECTOR", "MES"]].copy()
+
     for c in columnas:
         if c not in X.columns:
             X[c] = 0
     X = X[columnas]
 
     y_real = df_modelo["PROD_FINAL"].astype(float).values
-    y_pred = modelo.predict(X)
-    y_pred = np.array(y_pred).astype(float)
+    y_pred = np.asarray(modelo.predict(X)).astype(float)
 
     fig = plt.figure()
     plt.scatter(y_real, y_pred, alpha=0.6)
@@ -176,34 +191,39 @@ def plot_scatter_real_vs_pred(df_modelo, modelo, columnas):
     return fig
 
 # -----------------------------
-# Predicción principal
+# Ejecución
 # -----------------------------
 if btn:
     X_in = construir_X(prod_corte, dia_final, sector, mes, columnas_modelo)
-    pred_final = predecir(modelo, X_in)
+    prod_recuperable = predecir_escalar(modelo, X_in)
 
-    perdida = float(prod_corte) - pred_final
-    if prod_corte and prod_corte > 0:
-        perdida_pct = (perdida / float(prod_corte)) * 100
-    else:
-        perdida_pct = 0.0
+    no_recuperado = float(prod_corte) - prod_recuperable
+    eficiencia = (prod_recuperable / float(prod_corte) * 100) if float(prod_corte) > 0 else 0.0
 
-    # KPIs
+    # Recomendación automática: día con mayor producción recuperable
+    sim = simular_dias(modelo, prod_corte, sector, mes, columnas_modelo)
+    dia_recomendado = int(sim.loc[sim["Produccion_Recuperable"].idxmax(), "Dia_Empaque"])
+    prod_max = float(sim["Produccion_Recuperable"].max())
+
+    # KPIs ejecutivos
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Producción final estimada", f"{pred_final:,.2f}")
-    c2.metric("Pérdida estimada (corte - final)", f"{perdida:,.2f}")
-    c3.metric("Pérdida porcentual", f"{perdida_pct:,.2f}%")
-    c4.metric("Día final de empaque", f"{dia_final}")
+    c1.metric("Producción recuperable (estimada)", f"{prod_recuperable:,.2f}")
+    c2.metric("Eficiencia del corte", f"{eficiencia:,.2f}%")
+    c3.metric("Volumen no recuperado", f"{no_recuperado:,.2f}")
+    c4.metric("Día recomendado", f"{dia_recomendado}")
 
     st.divider()
 
-    # Simulación por días
-    sim = simular_dias(modelo, prod_corte, sector, mes, columnas_modelo)
+    # Tabla de simulación
     st.subheader("Simulación por día de empaque (1 a 6)")
     st.dataframe(sim, use_container_width=True)
 
+    # Mensaje ejecutivo rápido
+    st.info(f"Según el modelo, el mejor día (máxima producción recuperable) es el **día {dia_recomendado}** "
+            f"con una producción recuperable aproximada de **{prod_max:,.2f}**.")
+
     # -----------------------------
-    # 4 GRÁFICAS
+    # Panel visual (4 gráficas)
     # -----------------------------
     st.subheader("Panel visual (4 gráficas)")
 
@@ -221,18 +241,18 @@ if btn:
 
     g3, g4 = st.columns(2)
     with g3:
-        fig3 = plot_bar_conteo_sector(df_modelo)
+        fig3 = plot_conteo_sector(df_modelo)
         if fig3 is None:
-            st.info("Si subes un archivo df_modelo.csv al repo, aquí mostramos conteos por sector.")
+            st.info("Si subes un archivo `df_modelo.csv` al repo, aquí mostramos el conteo por sector.")
         else:
             st.pyplot(fig3, use_container_width=True)
 
     with g4:
-        fig4 = plot_scatter_real_vs_pred(df_modelo, modelo, columnas_modelo)
+        fig4 = plot_real_vs_pred(df_modelo, modelo, columnas_modelo)
         if fig4 is None:
-            st.info("Si df_modelo.csv tiene PROD_FINAL y variables base, aquí se verá real vs predicho.")
+            st.info("Si `df_modelo.csv` tiene `PROD_FINAL` y variables base, aquí se verá Real vs Predicho.")
         else:
             st.pyplot(fig4, use_container_width=True)
 
 else:
-    st.info("Ajusta los selectores en la izquierda y presiona Predecir.")
+    st.info("Ajusta los selectores a la izquierda y presiona **Predecir**.")
