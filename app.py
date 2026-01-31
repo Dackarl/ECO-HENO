@@ -209,7 +209,7 @@ if btn:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Producción recuperable (estimada)", f"{prod_recuperable:,.2f}")
     c2.metric("Eficiencia del corte", f"{eficiencia:,.2f}%")
-    c3.metric("Volumen no recuperado", f"{no_recuperado:,.2f}")
+    c3.metric("Volumen en produccción", f"{no_recuperado:,.2f}")
     c4.metric("Día recomendado", f"{dia_recomendado}")
 
     st.divider()
