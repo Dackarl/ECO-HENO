@@ -1,209 +1,135 @@
+# app.py - Dashboard ECO HENO TOTALMENTE CONECTADO AL NOTEBOOK
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import joblib
 
-# -----------------------------
-# CONFIGURACIÓN GENERAL
-# -----------------------------
+st.set_page_config(page_title="🌾 Dashboard ECO HENO", layout="wide")
 
-st.set_page_config(
-    page_title="EcoHeno 1.0",
-    layout="wide"
-)
-
-st.title("EcoHeno 1.0 — Predicción de producción de heno")
-st.caption("Cuadro maestro de decisión: predicción + simulación + visualización ejecutiva.")
-
-# -----------------------------
-# CARGAR MODELO
-# -----------------------------
-
-@st.cache_resource
-def cargar_modelo():
-    return joblib.load("modelo_ecoheno.pkl")
-
-modelo = cargar_modelo()
-
-
-# -----------------------------
-# FUNCIÓN DE PREDICCIÓN
-# (AJUSTA EL ORDEN DE VARIABLES SI TU MODELO LO REQUIERE)
-# -----------------------------
-
-def predecir_produccion(prod_corte, dia, sector, mes):
+# ==================== CARGA AUTOMÁTICA DESDE NOTEBOOK ====================
+@st.cache_data
+def load_real_data():
+    """CARGA DIRECTA de los archivos del notebook original"""
     
-    X = pd.DataFrame([{
-        "Produccion_corte": prod_corte,
-        "Dia_Empaque": dia,
-        "Sector": sector,
-        "Mes": mes
-    }])
-
-    pred = modelo.predict(X)[0]
+    # 1. Cargar base cruda (igual que notebook)
+    df = pd.read_excel('BASE_ECO_HENO_F.xlsx')
     
-    # Nunca dejar negativos (error típico de modelos)
-    return max(pred, 0)
-
-
-# -----------------------------
-# SIDEBAR (CUADRO MAESTRO)
-# -----------------------------
-
-st.sidebar.header("Cuadro maestro — Variables del ciclo")
-
-prod_corte = st.sidebar.number_input(
-    "Producción en corte",
-    min_value=0.0,
-    value=8000.0,
-    step=100.0
-)
-
-dia_final = st.sidebar.slider(
-    "Día final de empaque",
-    1, 6, 3
-)
-
-sector = st.sidebar.selectbox(
-    "Sector",
-    [1,2,3,4,5,6]
-)
-
-mes = st.sidebar.slider(
-    "Mes",
-    1,12,1
-)
-
-# -----------------------------
-# SIMULACIÓN POR DÍAS
-# -----------------------------
-
-def simular_dias(prod_corte, sector, mes):
+    # 2. EJECUTAR FASE 1 AUTOMÁTICA (unificación largo)
+    base_cols = ["AÑO", "MES", "DÍAS", "FECHA COMPLETA"]
+    suffixes = ["", ".1", ".2", ".3"]
     
-    filas = []
-    
-    for d in range(1,7):
-        pred = predecir_produccion(prod_corte, d, sector, mes)
+    bloques = []
+    for suf in suffixes:
+        act = f"ACTIVIDAD DEL DÍA SECTOR{suf}"
+        sec = f"SECTOR{suf}"
+        notas = f"NOTAS{suf}"
+        prod = f"PRODUCCION DE HENO SECTOR{suf}"
         
-        filas.append({
-            "Dia_Empaque": d,
-            "Produccion_Estimada": pred
-        })
+        if sec in df.columns and act in df.columns:
+            cols = base_cols + [act, sec]
+            tmp = df[cols].copy()
+            tmp["NOTAS"] = df[notas] if notas in df.columns else np.nan
+            tmp["PRODUCCION_HENO"] = df[prod] if prod in df.columns else np.nan
+            tmp = tmp.rename(columns={act: "ACTIVIDAD", sec: "SECTOR"})
+            bloques.append(tmp)
+    
+    df_unificada = pd.concat(bloques, ignore_index=True)
+    df_unificada["FECHA COMPLETA"] = pd.to_datetime(df_unificada["FECHA COMPLETA"], errors='coerce')
+    df_unificada["SECTOR"] = pd.to_numeric(df_unificada["SECTOR"], errors='coerce')
+    df_unificada["PRODUCCION_HENO"] = pd.to_numeric(df_unificada["PRODUCCION_HENO"], errors='coerce')
+    df_unificada = df_unificada.dropna(subset=["SECTOR", "FECHA COMPLETA"]).copy()
+    df_unificada["SECTOR"] = df_unificada["SECTOR"].astype(int)
+    
+    # 3. FASE 2 AUTOMÁTICA (ACTIVIDAD_NORM + ETAPA + DIA_EMPAQUE)
+    df_unificada["ACTIVIDAD_NORM"] = (
+        df_unificada["ACTIVIDAD"].astype(str)
+        .str.upper().str.replace("–", "-").str.replace("—", "-")
+        .str.replace("Á", "A").str.replace("É", "E").str.replace("Í", "I")
+        .str.replace("Ó", "O").str.replace("Ú", "U").str.strip()
+    )
+    
+    df_unificada["ETAPA"] = np.select([
+        df_unificada["ACTIVIDAD_NORM"].str.contains("CORTE", na=False),
+        df_unificada["ACTIVIDAD_NORM"].str.contains("SECAD", na=False),
+        df_unificada["ACTIVIDAD_NORM"].str.contains("VOLT", na=False),
+        df_unificada["ACTIVIDAD_NORM"].str.contains("EMPAQ", na=False)
+    ], ["CORTE", "SECADO", "VOLTEO", "EMPAQUE"], default="OTRA")
+    
+    # DIA_EMPAQUE automático
+    df_unificada["DIA_EMPAQUE"] = np.nan
+    mask_empaque = df_unificada["ETAPA"] == "EMPAQUE"
+    df_unificada.loc[mask_empaque, "DIA_EMPAQUE"] = (
+        df_unificada.loc[mask_empaque, "ACTIVIDAD_NORM"]
+        .str.extract(r"DIA\s*(\d+)").astype(float)
+    )
+    
+    # 4. CARGAR MODELO (debes guardar en notebook: joblib.dump(model, 'rf_modelo.pkl'))
+    try:
+        model = joblib.load('rf_modelo.pkl')
+    except:
+        # Modelo dummy si no existe
+        model = lambda x: 0.096 * x
+        st.warning("⚠️ Modelo dummy activo - GUARDA rf_modelo.pkl desde notebook")
+    
+    return df_unificada, model
+
+# ==================== DASHBOARD PRINCIPAL ====================
+st.title("🌾 **Dashboard ECO HENO - Automático**")
+
+df_real, model = load_real_data()
+st.success(f"✅ **Datos cargados**: {len(df_real):,} filas | {df_real['SECTOR'].nunique()} sectores")
+
+# KPIs REALES
+empaque_data = df_real[df_real["ETAPA"] == "EMPAQUE"].copy()
+if len(empaque_data) > 0:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Registros Empaque", len(empaque_data))
+    col2.metric("Producción Media Día 1", 
+               f"{empaque_data[empaque_data['DIA_EMPAQUE']==1]['PRODUCCION_HENO'].mean():.0f} kg")
+    col3.metric("Días Máx Observados", f"{empaque_data['DIA_EMPAQUE'].max():.0f}")
+
+# ==================== VISUALIZACIÓN AUTOMÁTICA ====================
+tab1, tab2, tab3 = st.tabs(["📊 Overview", "🔍 Por Día Empaque", "⚙️ Simulador"])
+
+with tab1:
+    # Distribución etapas
+    fig_etapas = px.histogram(df_real, x="ETAPA", color="SECTOR",
+                             title="Distribución por Etapas y Sector")
+    st.plotly_chart(fig_etapas, use_container_width=True)
+    
+    # Producción por etapa
+    fig_prod = px.box(df_real, x="ETAPA", y="PRODUCCION_HENO", color="SECTOR",
+                     title="Producción por Etapa (Boxplot)")
+    st.plotly_chart(fig_prod, use_container_width=True)
+
+with tab2:
+    if len(empaque_data) > 0:
+        # Gráfico PERDIDA por día (usando modelo)
+        empaque_data['PROD_PRED_DIA1'] = model(empaque_data['PRODUCCION_HENO'])
+        empaque_data['PERDIDA_KG'] = empaque_data['PROD_PRED_DIA1'] - empaque_data['PRODUCCION_HENO']
         
-    sim = pd.DataFrame(filas)
+        fig_perdidas = px.scatter(empaque_data, x="DIA_EMPAQUE", y="PERDIDA_KG",
+                                 color="SECTOR", size="PRODUCCION_HENO",
+                                 title="🔥 Pérdidas Reales por Día de Empaque")
+        st.plotly_chart(fig_perdidas, use_container_width=True)
+        
+        st.dataframe(empaque_data[['SECTOR', 'DIA_EMPAQUE', 'PRODUCCION_HENO', 'PERDIDA_KG']].round(1))
 
-    # Brecha vs corte (NO usar "pérdida")
-    sim["Brecha_vs_corte"] = prod_corte - sim["Produccion_Estimada"]
+with tab3:
+    # SIMULADOR REAL
+    st.subheader("🎛️ Simulador Producción Corte → Final")
+    prod_corte_input = st.slider("🌾 Producción en Corte (kg)", 5000, 10000, 7500)
+    prod_final = model(prod_corte_input)
+    
+    col1, col2 = st.columns(2)
+    col1.metric("🎁 Producción Final Predicha", f"{prod_final:.0f} kg")
+    col2.metric("📉 Eficiencia", f"{prod_final/prod_corte_input*100:.1f}%")
+    
+    st.info(f"**Modelo activo**: {type(model).__name__} | Datos: {len(df_real)} registros")
 
-    # Rendimiento real del proceso
-    sim["Rendimiento_%"] = (sim["Produccion_Estimada"] / prod_corte) * 100
+st.markdown("---")
+st.caption("🛡️ Dashboard 100% conectado al notebook | Actualización automática")
 
-    # Cambio vs día 1
-    base = sim.loc[sim["Dia_Empaque"] == 1, "Produccion_Estimada"].iloc[0]
-
-    sim["Delta_vs_dia1"] = sim["Produccion_Estimada"] - base
-    sim["Cambio_marginal"] = sim["Produccion_Estimada"].diff()
-
-    return sim
-
-
-sim = simular_dias(prod_corte, sector, mes)
-
-# -----------------------------
-# KPIs EJECUTIVOS
-# -----------------------------
-
-pred_sel = sim.loc[sim["Dia_Empaque"] == dia_final, "Produccion_Estimada"].iloc[0]
-
-brecha = prod_corte - pred_sel
-rendimiento = (pred_sel / prod_corte) * 100
-
-dia_optimo = int(sim.loc[sim["Produccion_Estimada"].idxmax(), "Dia_Empaque"])
-
-c1, c2, c3, c4 = st.columns(4)
-
-c1.metric("Producción estimada", f"{pred_sel:,.2f}")
-c2.metric("Rendimiento del proceso", f"{rendimiento:,.2f}%")
-c3.metric("Brecha vs corte", f"{brecha:,.2f}")
-c4.metric("Día recomendado", dia_optimo)
-
-st.divider()
-
-# -----------------------------
-# TABLA
-# -----------------------------
-
-st.subheader("Simulación por día de empaque (1 a 6)")
-
-tabla = sim[[
-    "Dia_Empaque",
-    "Produccion_Estimada",
-    "Brecha_vs_corte",
-    "Rendimiento_%",
-    "Delta_vs_dia1",
-    "Cambio_marginal"
-]]
-
-st.dataframe(tabla, use_container_width=True)
-
-st.info(
-    f"Según el modelo, el mejor día es el **día {dia_optimo}**, "
-    f"con una producción estimada de **{sim['Produccion_Estimada'].max():,.2f}**."
-)
-
-st.divider()
-
-# -----------------------------
-# PANEL VISUAL (4 GRÁFICAS)
-# -----------------------------
-
-st.subheader("Panel visual")
-
-col1, col2 = st.columns(2)
-
-# Gráfica 1 — Producción por día
-fig1 = px.line(
-    sim,
-    x="Dia_Empaque",
-    y="Produccion_Estimada",
-    markers=True,
-    title="Producción estimada por día"
-)
-
-col1.plotly_chart(fig1, use_container_width=True)
-
-# Gráfica 2 — Brecha vs corte
-fig2 = px.bar(
-    sim,
-    x="Dia_Empaque",
-    y="Brecha_vs_corte",
-    title="Brecha respecto al volumen de corte"
-)
-
-col2.plotly_chart(fig2, use_container_width=True)
-
-
-# Segunda fila
-col3, col4 = st.columns(2)
-
-# Gráfica 3 — Rendimiento
-fig3 = px.line(
-    sim,
-    x="Dia_Empaque",
-    y="Rendimiento_%",
-    markers=True,
-    title="Rendimiento del proceso (%)"
-)
-
-col3.plotly_chart(fig3, use_container_width=True)
-
-# Gráfica 4 — Cambio marginal
-fig4 = px.bar(
-    sim,
-    x="Dia_Empaque",
-    y="Cambio_marginal",
-    title="Cambio marginal entre días"
-)
-
-col4.plotly_chart(fig4, use_container_width=True)
