@@ -206,6 +206,11 @@ col2.plotly_chart(fig4, use_container_width=True)
 
 # 3 — Avance del proceso (barras)
 
+st.warning(
+    "Nota operativa: La producción acumulada está limitada por la capacidad de empaque de un solo operario. "
+    "Valores superiores requerirían ampliación de la capacidad instalada."
+)
+
 sim["Produccion_Corte"] = prod_corte
 sim["Produccion_Acumulada"] = sim["Produccion_Estimada"].cumsum()
 sim["Produccion_Acumulada"] = sim["Produccion_Acumulada"].clip(upper=prod_corte)
