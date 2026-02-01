@@ -203,3 +203,16 @@ fig4 = px.scatter(
 )
 
 col2.plotly_chart(fig4, use_container_width=True)
+
+sim["Produccion_Corte"] = prod_corte
+
+fig3 = px.bar(
+    sim,
+    x="Dia_Empaque",
+    y=["Produccion_Corte", "Produccion_Estimada"],
+    barmode="group",
+    title="Producción en corte vs producción recuperada"
+)
+
+st.plotly_chart(fig3, use_container_width=True)
+
