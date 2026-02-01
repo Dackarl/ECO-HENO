@@ -7,9 +7,9 @@ import plotly.express as px
 # ============================================================
 # 1) CONFIG
 # ============================================================
-st.set_page_config(page_title="EcoHeno 1.0", layout="wide")
+st.set_page_config(page_title="EcoHeno 2.0", layout="wide")
 
-st.title("EcoHeno 1.0 — Predicción de producción de heno")
+st.title("EcoHeno 2.0 — Predicción de producción de heno")
 st.caption("Cuadro maestro de decisión: predicción + simulación + visualización ejecutiva.")
 
 # ============================================================
