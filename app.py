@@ -127,8 +127,8 @@ def simular_dias(prod_corte, sector, mes):
     sim = pd.DataFrame(filas)
 
     # Métricas claras (sin “No_recuperado” confuso)
-    sim["Brecha_vs_corte"] = prod_corte - sim["Produccion_Estimada"]
-    sim["Rendimiento_%"] = (sim["Produccion_Estimada"] / prod_corte) * 100
+    sim["Produccion luego de perdidas"] = prod_corte - sim["Produccion_Estimada"]
+    sim["Perdida_%"] = (sim["Produccion_Estimada"] / prod_corte) * 100
 
     base = sim.loc[sim["Dia_Empaque"] == 1, "Produccion_Estimada"].iloc[0]
     sim["Delta_vs_dia1"] = sim["Produccion_Estimada"] - base
@@ -145,7 +145,7 @@ pred_sel = sim.loc[sim["Dia_Empaque"] == dia_final, "Produccion_Estimada"].iloc[
 brecha = prod_corte - pred_sel
 rendimiento = (pred_sel / prod_corte) * 100
 
-dia_optimo = int(sim.loc[sim["Produccion_Estimada"].idxmax(), "Dia_Empaque"])
+dia_optimo = int(sim.loc[sim["Produccion_Estimada"].idxmax(), "Dia_Empaque"].iloc[0])
 mejor_pred = float(sim["Produccion_Estimada"].max())
 
 c1, c2, c3, c4 = st.columns(4)
