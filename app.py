@@ -22,7 +22,7 @@ UI_COLS = {
 # ============================================================
 st.set_page_config(page_title="EcoHeno 2.0", layout="wide")
 
-st.title("EcoHeno 2.0 — Hay Production Forecasting")
+st.title("🌾 EcoHeno 2.0 — Hay Production Forecasting")
 st.caption("Decision dashboard: prediction + simulation + executive visualization.")
 
 # ============================================================
