@@ -147,6 +147,18 @@ def simular_dias(prod_corte, sector, mes):
 
 sim = simular_dias(prod_corte, sector, mes)
 
+UI_COLS = {
+    "Dia_Empaque": "Packing Day",
+    "Produccion_Estimada": "Estimated Production",
+    "Perdida_%": "Process Loss (%)",
+    "Cambio_marginal": "Marginal Change"
+}
+
+sim_view = sim.rename(columns=UI_COLS).copy()
+
+st.subheader("Packing-day simulation (1 to 6)")
+st.dataframe(sim_view, use_container_width=True)
+
 # ============================================================
 # 7) KPIs (top panel)
 # ============================================================
