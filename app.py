@@ -238,3 +238,12 @@ fig.update_layout(
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+st.warning("Nota operativa: El análisis predictivo evidencia" 
+           " una restricción en la capacidad de empaque ante "
+           "escenarios de mayor volumen de corte. Esto indica "
+           "que el proceso actual depende de una capacidad operativa "
+           "limitada, la cual podría generar congestión si la "
+           "producción aumenta. En este sentido, el sistema no solo "
+           "estima la producción, sino que también permite anticipar "
+           "necesidades de ajuste para sostener la continuidad operativa.")
