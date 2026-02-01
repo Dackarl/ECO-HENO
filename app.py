@@ -204,15 +204,31 @@ fig4 = px.scatter(
 
 col2.plotly_chart(fig4, use_container_width=True)
 
+# 3 — Avance del proceso (barras)
+
 sim["Produccion_Corte"] = prod_corte
 
-fig3 = px.bar(
-    sim,
-    x="Dia_Empaque",
-    y=["Produccion_Corte", "Produccion_Estimada"],
-    barmode="group",
-    title="Producción en corte vs producción recuperada"
+import plotly.graph_objects as go
+
+fig = go.Figure()
+
+# Barra base (corte)
+fig.add_trace(go.Bar(
+    x=["Corte"],
+    y=[prod_corte],
+    name="Producción en corte"
+))
+
+# Barras del proceso
+fig.add_trace(go.Bar(
+    x=[f"Día {d}" for d in sim["Dia_Empaque"]],
+    y=sim["Produccion_Estimada"],
+    name="Producción recuperada"
+))
+
+fig.update_layout(
+    title="Avance del proceso de recuperación de producción",
+    barmode="group"
 )
 
-st.plotly_chart(fig3, use_container_width=True)
-
+st.plotly_chart(fig, use_container_width=True)
