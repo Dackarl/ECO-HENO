@@ -1,133 +1,88 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
 import joblib
-import os
+import plotly.express as px
 
-st.set_page_config(page_title="Dashboard ECO HENO", layout="wide")
+# Configuración inicial de la página
+st.set_page_config(page_title="Tablero Maestro ECO HENO", layout="wide")
 
-@st.cache_data
-def load_and_process_data():
-    """Procesamiento completo automatico desde Excel crudo"""
+# 1. CARGA DE RECURSOS
+# Se cargan los archivos generados en el entrenamiento (RandomForest y lista de columnas)
+@st.cache_resource
+def cargar_recursos():
+    try:
+        modelo = joblib.load("modelo_ecoheno.pkl")
+        columnas = joblib.load("columnas_modelo.pkl")
+        return modelo, columnas
+    except Exception as e:
+        st.error("Error: Asegurese de tener 'modelo_ecoheno.pkl' y 'columnas_modelo.pkl' en el repositorio.")
+        return None, None
+
+modelo, columnas = cargar_recursos()
+
+# 2. FUNCIONES DE CÁLCULO
+# predecir_produccion: Calcula el valor puntual basado en las 4 variables maestras
+def predecir_produccion(modelo, columnas, prod_corte, dia_final, sector, mes):
+    df_input = pd.DataFrame([{
+        "PROD_CORTE": prod_corte,
+        "DIA_FINAL": dia_final,
+        "SECTOR": sector,
+        "MES": mes
+    }])
+    df_input = df_input.reindex(columns=columnas, fill_value=0)
+    return float(modelo.predict(df_input)[0])
+
+# simular_ciclo: Genera la tabla comparativa del dia 1 al 6 para el Cuadro Maestro
+def simular_ciclo(modelo, columnas, prod_corte, sector, mes):
+    datos = []
+    for d in range(1, 7):
+        p = predecir_produccion(modelo, columnas, prod_corte, d, sector, mes)
+        datos.append({"Dia_Empaque": d, "Produccion_Predicha": round(p, 2)})
     
-    # Verificar archivo existe
-    if not os.path.exists('BASE_ECO_HENO_F.xlsx'):
-        st.error("ERROR: BASE_ECO_HENO_F.xlsx no encontrado en el folder")
-        st.stop()
+    df = pd.DataFrame(datos)
+    # Cálculo de indicadores de eficiencia y pérdida
+    df["Perdida_Acumulada"] = df["Produccion_Predicha"].iloc[0] - df["Produccion_Predicha"]
+    df["Eficiencia_%"] = (df["Produccion_Predicha"] / prod_corte) * 100
+    df["Cambio_Marginal"] = df["Produccion_Predicha"].diff()
+    return df
+
+# 3. INTERFAZ DE USUARIO (CUADRO MAESTRO)
+st.title("Control de Produccion ECO HENO")
+
+if modelo:
+    # Sidebar para ingreso de datos de producción
+    st.sidebar.header("Entrada de Datos")
+    prod_corte = st.sidebar.number_input("Produccion Inicial (Corte)", min_value=0.0, value=7500.0)
+    sector = st.sidebar.selectbox("Sector", options=list(range(1, 9)), index=2)
+    mes = st.sidebar.selectbox("Mes de Operacion", options=list(range(1, 13)), index=5)
+    dia_objetivo = st.sidebar.slider("Dia de Empaque Objetivo", 1, 6, 4)
+
+    # Procesamiento
+    df_maestro = simular_ciclo(modelo, columnas, prod_corte, sector, mes)
+    pred_actual = df_maestro.loc[df_maestro["Dia_Empaque"] == dia_objetivo, "Produccion_Predicha"].values[0]
+    eficiencia_actual = df_maestro.loc[df_maestro["Dia_Empaque"] == dia_objetivo, "Eficiencia_%"].values[0]
+
+    # 4. VISUALIZACIÓN DE INDICADORES
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Prediccion Final", f"{pred_actual:.2f} kg")
+    with col2:
+        st.metric("Eficiencia Estimada", f"{eficiencia_actual:.1f}%")
+    with col3:
+        st.metric("Sector Seleccionado", f"Sector {sector}")
+
+    # Gráfico de tendencia
+    st.subheader("Tendencia de Produccion por Dia")
+    fig = px.line(df_maestro, x="Dia_Empaque", y="Produccion_Predicha", markers=True)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Tabla Maestra
+    st.subheader("Cuadro Maestro de Indicadores")
+    st.dataframe(df_maestro, use_container_width=True)
+
+    # Nota Técnica: El umbral de elasticidad ayuda a decidir el momento óptimo de empaque
+    # Basado en el mayor cambio marginal negativo
+    id_optimo = df_maestro["Cambio_Marginal"].abs().idxmax() if not df_maestro["Cambio_Marginal"].isnull().all() else 0
+    dia_optimo = df_maestro.loc[id_optimo, "Dia_Empaque"]
     
-    # 1. Cargar Excel crudo
-    df = pd.read_excel('BASE_ECO_HENO_F.xlsx')
-    
-    # 2. FASE 1: Unificacion largo (codigo exacto del notebook)
-    base_cols = ["AÑO", "MES", "DÍAS", "FECHA COMPLETA"]
-    suffixes = ["", ".1", ".2", ".3"]
-    
-    bloques = []
-    for suf in suffixes:
-        act = f"ACTIVIDAD DEL DÍA SECTOR{suf}"
-        sec = f"SECTOR{suf}"
-        
-        if sec in df.columns and act in df.columns:
-            cols = base_cols + [act, sec]
-            tmp = df[cols].copy()
-            
-            notas = f"NOTAS{suf}"
-            prod = f"PRODUCCION DE HENO SECTOR{suf}"
-            tmp["NOTAS"] = df[notas] if notas in df.columns else np.nan
-            tmp["PRODUCCION_HENO"] = df[prod] if prod in df.columns else np.nan
-            
-            tmp = tmp.rename(columns={act: "ACTIVIDAD", sec: "SECTOR"})
-            bloques.append(tmp)
-    
-    df_unificada = pd.concat(bloques, ignore_index=True)
-    
-    # Limpieza tipos
-    df_unificada["FECHA COMPLETA"] = pd.to_datetime(df_unificada["FECHA COMPLETA"], errors='coerce')
-    df_unificada["SECTOR"] = pd.to_numeric(df_unificada["SECTOR"], errors='coerce')
-    df_unificada["PRODUCCION_HENO"] = pd.to_numeric(df_unificada["PRODUCCION_HENO"], errors='coerce')
-    df_unificada = df_unificada.dropna(subset=["SECTOR", "FECHA COMPLETA"])
-    df_unificada["SECTOR"] = df_unificada["SECTOR"].astype(int)
-    
-    # 3. FASE 2: Normalizacion y ETAPA
-    df_unificada["ACTIVIDAD_NORM"] = (
-        df_unificada["ACTIVIDAD"].astype(str).str.upper()
-        .str.replace("–", "-").str.replace("—", "-")
-        .str.replace("Á", "A").str.replace("É", "E")
-        .str.replace("Í", "I").str.replace("Ó", "O").str.replace("Ú", "U")
-        .str.strip()
-    )
-    
-    df_unificada["ETAPA"] = np.select([
-        df_unificada["ACTIVIDAD_NORM"].str.contains("CORTE"),
-        df_unificada["ACTIVIDAD_NORM"].str.contains("SECAD"),
-        df_unificada["ACTIVIDAD_NORM"].str.contains("VOLT"),
-        df_unificada["ACTIVIDAD_NORM"].str.contains("EMPAQ")
-    ], ["CORTE", "SECADO", "VOLTEO", "EMPAQUE"], "OTRA")
-    
-    # DIA_EMPAQUE
-    df_unificada["DIA_EMPAQUE"] = np.nan
-    mask_empaque = df_unificada["ETAPA"] == "EMPAQUE"
-    if mask_empaque.sum() > 0:
-        df_unificada.loc[mask_empaque, "DIA_EMPAQUE"] = (
-            df_unificada.loc[mask_empaque, "ACTIVIDAD_NORM"]
-            .str.extract(r"DIA\s*(\d+)").astype(float)
-        )
-    
-    return df_unificada
-
-# ==================== INICIO DASHBOARD ====================
-st.title("Dashboard ECO HENO - Q1")
-
-# Cargar datos
-df = load_and_process_data()
-st.success(f"Datos procesados: {len(df)} filas | {df['SECTOR'].nunique()} sectores")
-
-# Cargar modelo (opcional)
-try:
-    model = joblib.load('rf_modelo.pkl')
-    st.info("Modelo Random Forest cargado")
-except:
-    model = None
-    st.warning("Modelo no encontrado - usando eficiencia media 9.6%")
-
-# ==================== KPIs ====================
-empaque_data = df[df["ETAPA"] == "EMPAQUE"].copy()
-corte_data = df[df["ETAPA"] == "CORTE"].copy()
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Registros", len(df))
-col2.metric("Registros Empaque", len(empaque_data))
-col3.metric("Sectores", df['SECTOR'].nunique())
-col4.metric("Prod Media Corte", f"{corte_data['PRODUCCION_HENO'].mean():.0f} kg")
-
-# ==================== GRÁFICOS ====================
-col1, col2 = st.columns(2)
-
-with col1:
-    fig1 = px.histogram(df, x="ETAPA", color="SECTOR", 
-                       title="Distribucion por Etapas")
-    st.plotly_chart(fig1, use_container_width=True)
-
-with col2:
-    if len(empaque_data) > 0:
-        fig2 = px.box(empaque_data, x="DIA_EMPAQUE", y="PRODUCCION_HENO",
-                     title="Produccion por Dia Empaque")
-        st.plotly_chart(fig2, use_container_width=True)
-
-# ==================== TABLA DATOS PROCESADOS ====================
-st.subheader("Datos Procesados")
-st.dataframe(df[['SECTOR', 'ETAPA', 'DIA_EMPAQUE', 'PRODUCCION_HENO']].head(20))
-
-# ==================== SIMULADOR ====================
-st.subheader("Simulador Produccion")
-prod_corte = st.slider("Produccion Corte kg", 5000, 10000, 7500)
-
-if model:
-    pred_final = model.predict([[prod_corte]])[0]
-else:
-    pred_final = 0.096 * prod_corte
-
-st.metric("Produccion Final Predicha", f"{pred_final:.0f} kg")
-st.metric("Eficiencia", f"{pred_final/prod_corte*100:.1f}%")
-
+    st.info(f"Nota: El mayor cambio en la tasa de secado se observa en el Dia {dia_optimo}.")
