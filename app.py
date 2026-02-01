@@ -111,7 +111,7 @@ dia_final = st.sidebar.slider(
 
 sector = st.sidebar.selectbox(
     "Sector",
-    options=[1, 2, 3, 4, 5, 6],
+    options=[1, 2, 3, 4, 5, 6, 7, 8],
     index=0
 )
 
