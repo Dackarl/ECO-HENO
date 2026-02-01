@@ -135,3 +135,11 @@ If you use this system in academic research or industrial applications, please c
 ## Research Status
 
 EcoHeno 2.0 is part of an applied research initiative focused on scalable digital solutions for sustainable agricultural production and intelligent decision-support systems.
+
+---
+
+## License
+
+This project is released for academic and research purposes only.
+For industrial or commercial use, please contact the authors.
+
