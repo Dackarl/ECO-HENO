@@ -4,6 +4,19 @@ import numpy as np
 import joblib
 import plotly.express as px
 
+# =========================
+# UI labels mapping
+# =========================
+UI_COLS = {
+    "Dia_Empaque": "Packing day",
+    "Produccion_Estimada": "Estimated output",
+    "Perdida_%": "Process loss (%)",
+    "Cambio_marginal": "Marginal change",
+    "Perdida_real": "Absolute loss",
+    "Produccion_Acumulada": "Cumulative output",
+    "Produccion_Corte": "Cut volume"
+}
+
 # ============================================================
 # 1) CONFIG
 # ============================================================
@@ -176,24 +189,38 @@ sim["Perdida_real"] = prod_corte - sim["Produccion_Estimada"]
 col1, col2 = st.columns(2)
 
 # 1 — Loss percentage
-fig3 = px.line(
+fig_loss = px.line(
     sim,
     x="Dia_Empaque",
     y="Perdida_%",
     markers=True,
-    title="Process loss percentage"
+    title="Process loss percentage",
+    labels={
+        "Dia_Empaque": "Packing day",
+        "Perdida_%": "Process loss (%)"
+    }
 )
-col1.plotly_chart(fig3, use_container_width=True)
+
+col1.plotly_chart(fig_loss, use_container_width=True)
 
 # 2 — Bottleneck / impact
-fig4 = px.scatter(
+fig_impact = px.scatter(
     sim,
     x="Dia_Empaque",
     y="Produccion_Estimada",
     size="Produccion_Estimada",
-    title="Impact of packing day on estimated production"
+    title="Impact of packing day on estimated output",
+    labels={
+        "Dia_Empaque": "Packing day",
+        "Produccion_Estimada": "Estimated output"
+    }
 )
-col2.plotly_chart(fig4, use_container_width=True)
+
+fig_impact.update_traces(
+    hovertemplate="Packing day=%{x}<br>Estimated output=%{y}<extra></extra>"
+)
+
+col2.plotly_chart(fig_impact, use_container_width=True)
 
 # 3 — Cumulative progress (bars)
 st.warning(
