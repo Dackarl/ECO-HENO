@@ -208,6 +208,8 @@ col2.plotly_chart(fig4, use_container_width=True)
 
 sim["Produccion_Corte"] = prod_corte
 sim["Produccion_Acumulada"] = sim["Produccion_Estimada"].cumsum()
+sim["Produccion_Acumulada"] = sim["Produccion_Acumulada"].clip(upper=prod_corte)
+
 
 import plotly.graph_objects as go
 
@@ -227,7 +229,7 @@ fig.add_trace(go.Bar(
 
 fig.update_layout(
     title="Avance acumulado del proceso de empaque",
-    barmode="group"
+    barmode="relative"
 )
 
 st.plotly_chart(fig, use_container_width=True)
