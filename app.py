@@ -9,41 +9,40 @@ import plotly.express as px
 # ============================================================
 st.set_page_config(page_title="EcoHeno 2.0", layout="wide")
 
-st.title("EcoHeno 2.0 — Predicción de producción de heno")
-st.caption("Cuadro maestro de decisión: predicción + simulación + visualización ejecutiva.")
+st.title("EcoHeno 2.0 — Hay Production Forecasting")
+st.caption("Decision dashboard: prediction + simulation + executive visualization.")
 
 # ============================================================
-# 2) CARGA DE MODELO + COLUMNAS (para evitar el error de sklearn)
+# 2) LOAD MODEL + COLUMNS (avoid sklearn feature mismatch)
 # ============================================================
 @st.cache_resource
 def cargar_artifacts():
     modelo = joblib.load("modelo_ecoheno.pkl")
-    columnas = joblib.load("columnas_modelo.pkl")  # lista exacta del entrenamiento
+    columnas = joblib.load("columnas_modelo.pkl")  # exact list used in training
     return modelo, columnas
 
 modelo, columnas_modelo = cargar_artifacts()
 
-with st.expander("Columnas que espera el modelo (debug)"):
+with st.expander("Model expected columns (debug)"):
     st.write(columnas_modelo)
 
 # ============================================================
-# 3) CONSTRUIR X CON COLUMNAS EXACTAS
+# 3) BUILD X WITH EXACT TRAINING COLUMNS
 # ============================================================
 def construir_X(prod_corte, dia_final, sector, mes):
     """
-    Crea el vector de entrada X con las MISMAS columnas del entrenamiento.
-    Rellena con mapeo robusto para no romperse si los nombres cambian.
+    Builds the input vector X using the SAME columns as training.
+    Uses robust alias mapping to avoid breaks if names differ.
     """
     X = pd.DataFrame(np.zeros((1, len(columnas_modelo))), columns=columnas_modelo)
 
-    # Mapeo robusto: intenta encajar con varios nombres posibles
     alias = {
-        # producción en corte
+        # cut production
         "PROD_CORTE": prod_corte,
         "Produccion_corte": prod_corte,
         "produccion_corte": prod_corte,
 
-        # día final empaque
+        # final packing day
         "DIA_FINAL": dia_final,
         "Dia_final": dia_final,
         "DIA_EMPAQUE": dia_final,
@@ -55,13 +54,12 @@ def construir_X(prod_corte, dia_final, sector, mes):
         "Sector": sector,
         "sector": sector,
 
-        # mes
+        # month
         "MES": mes,
         "Mes": mes,
         "mes": mes,
     }
 
-    # Solo llena las columnas que existan en columnas_modelo
     for col in X.columns:
         if col in alias:
             X.loc[0, col] = alias[col]
@@ -69,23 +67,22 @@ def construir_X(prod_corte, dia_final, sector, mes):
     return X
 
 # ============================================================
-# 4) PREDICCIÓN
+# 4) PREDICTION
 # ============================================================
 def predecir_produccion(prod_corte, dia_final, sector, mes):
     X = construir_X(prod_corte, dia_final, sector, mes)
     pred = float(modelo.predict(X)[0])
-    # por si el modelo devuelve negativos por ruido
     return max(pred, 0.0)
 
 # ============================================================
-# 5) SIDEBAR (selectores)
+# 5) SIDEBAR (selectors)
 # ============================================================
-st.sidebar.header("Cuadro maestro — Variables del ciclo")
+st.sidebar.header("Master controls — Cycle variables")
 
 CAPACIDAD_MAXIMA = 9000.0
 
 prod_corte = st.sidebar.number_input(
-    "Producción en corte",
+    "Cut production (kg)",
     min_value=0.0,
     max_value=CAPACIDAD_MAXIMA,
     value=min(6000.0, CAPACIDAD_MAXIMA),
@@ -93,7 +90,7 @@ prod_corte = st.sidebar.number_input(
 )
 
 dia_final = st.sidebar.slider(
-    "Día final de empaque",
+    "Final packing day",
     min_value=1,
     max_value=6,
     value=3
@@ -106,17 +103,16 @@ sector = st.sidebar.selectbox(
 )
 
 mes = st.sidebar.slider(
-    "Mes",
+    "Month",
     min_value=1,
     max_value=12,
     value=1
 )
 
-# botón (opcional, pero se ve profesional)
-btn = st.sidebar.button("Predecir")
+btn = st.sidebar.button("Run prediction")
 
 # ============================================================
-# 6) SIMULACIÓN (días 1 a 6)
+# 6) SIMULATION (days 1 to 6)
 # ============================================================
 def simular_dias(prod_corte, sector, mes):
     filas = []
@@ -129,10 +125,9 @@ def simular_dias(prod_corte, sector, mes):
 
     sim = pd.DataFrame(filas)
 
-    # Métricas claras (sin “No_recuperado” confuso)
+    # NOTE: this is currently "ratio" (you later display 100 - ratio as "loss")
     sim["Perdida_%"] = (sim["Produccion_Estimada"] / prod_corte) * 100
 
-    base = sim.loc[sim["Dia_Empaque"] == 1, "Produccion_Estimada"].iloc[0]
     sim["Cambio_marginal"] = sim["Produccion_Estimada"].diff()
 
     return sim
@@ -140,7 +135,7 @@ def simular_dias(prod_corte, sector, mes):
 sim = simular_dias(prod_corte, sector, mes)
 
 # ============================================================
-# 7) KPIs (cuadro superior)
+# 7) KPIs (top panel)
 # ============================================================
 pred_sel = sim.loc[sim["Dia_Empaque"] == dia_final, "Produccion_Estimada"].iloc[0]
 brecha = prod_corte - pred_sel
@@ -150,100 +145,91 @@ dia_optimo = int(sim.loc[sim["Produccion_Estimada"].idxmax(), "Dia_Empaque"])
 mejor_pred = float(sim["Produccion_Estimada"].max())
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Producción estimada", f"{pred_sel:,.2f}")
-c2.metric("Rendimiento del proceso", f"{(100-rendimiento):,.2f}%")
-c3.metric("Brecha vs corte", f"{brecha:,.2f}")
-c4.metric("Día recomendado", f"{dia_optimo}")
+c1.metric("Estimated production (kg)", f"{pred_sel:,.2f}")
+c2.metric("Cut-day loss (%)", f"{(rendimiento):,.2f}%")
+c3.metric("Gap vs cut (kg)", f"{brecha:,.2f}")
+c4.metric("Recommended day", f"{dia_optimo}")
 
 st.divider()
 
 # ============================================================
-# 8) TABLA DE SIMULACIÓN
+# 8) SIMULATION TABLE
 # ============================================================
-st.subheader("Simulación por día de empaque (1 a 6)")
+st.subheader("Packing-day simulation (1 to 6)")
 st.dataframe(sim, use_container_width=True)
 
 st.info(
-    f"Según el modelo, el mejor día es el **día {dia_optimo}**, "
-    f"con una producción estimada de **{mejor_pred:,.2f}**."
+    f"Based on the model, the best option is **day {dia_optimo}**, "
+    f"with an estimated production of **{mejor_pred:,.2f}**."
 )
 
 st.divider()
 
 # ============================================================
-# 9) PANEL VISUAL (4 GRÁFICAS)
+# 9) VISUAL PANEL
 # ============================================================
+st.subheader("Operational visual panel")
 
-st.subheader("Panel visual operativo")
-
-# Crear columna de pérdida REAL
+# Real loss in kg
 sim["Perdida_real"] = prod_corte - sim["Produccion_Estimada"]
 
 col1, col2 = st.columns(2)
 
-# 1 — % de pérdida (NO rendimiento)
+# 1 — Loss percentage
 fig3 = px.line(
     sim,
     x="Dia_Empaque",
     y="Perdida_%",
     markers=True,
-    title="Pérdida porcentual del proceso"
+    title="Process loss percentage"
 )
-
 col1.plotly_chart(fig3, use_container_width=True)
 
-
-# 2 — Detectar cuello de botella
+# 2 — Bottleneck / impact
 fig4 = px.scatter(
     sim,
     x="Dia_Empaque",
     y="Produccion_Estimada",
     size="Produccion_Estimada",
-    title="Impacto del día de empaque en la producción"
+    title="Impact of packing day on estimated production"
 )
-
 col2.plotly_chart(fig4, use_container_width=True)
 
-# 3 — Avance del proceso (barras)
-
+# 3 — Cumulative progress (bars)
 st.warning(
-    "Nota operativa: La producción acumulada está limitada por la capacidad de empaque de un solo operario. "
-    "Valores superiores requerirían ampliación de la capacidad instalada."
+    "Operational note: cumulative output is limited by the packing capacity of a single operator. "
+    "Higher cut volumes would require expanding installed capacity."
 )
 
 sim["Produccion_Corte"] = prod_corte
 sim["Produccion_Acumulada"] = sim["Produccion_Estimada"].cumsum()
 sim["Produccion_Acumulada"] = sim["Produccion_Acumulada"].clip(upper=prod_corte)
 
-
 import plotly.graph_objects as go
 
 fig = go.Figure()
 
 fig.add_trace(go.Bar(
-    x=["Corte"],
+    x=["Cut"],
     y=[prod_corte],
-    name="Producción en corte"
+    name="Cut volume"
 ))
 
 fig.add_trace(go.Bar(
-    x=[f"Día {d}" for d in sim["Dia_Empaque"]],
+    x=[f"Day {d}" for d in sim["Dia_Empaque"]],
     y=sim["Produccion_Acumulada"],
-    name="Producción acumulada"
+    name="Cumulative packed volume"
 ))
 
 fig.update_layout(
-    title="Avance acumulado del proceso de empaque",
+    title="Cumulative packing progress",
     barmode="relative"
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-st.warning("Nota operativa: El análisis predictivo evidencia" 
-           " una restricción en la capacidad de empaque ante "
-           "escenarios de mayor volumen de corte. Esto indica "
-           "que el proceso actual depende de una capacidad operativa "
-           "limitada, la cual podría generar congestión si la "
-           "producción aumenta. En este sentido, el sistema no solo "
-           "estima la producción, sino que también permite anticipar "
-           "necesidades de ajuste para sostener la continuidad operativa.")
+st.warning(
+    "Operational note: the predictive analysis indicates a packing-capacity constraint under higher cut-volume scenarios. "
+    "This suggests the current process relies on limited operating capacity, which may create congestion if production increases. "
+    "Therefore, the system not only estimates output but also helps anticipate operational adjustments to sustain continuity."
+)
