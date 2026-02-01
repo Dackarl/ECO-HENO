@@ -82,10 +82,13 @@ def predecir_produccion(prod_corte, dia_final, sector, mes):
 # ============================================================
 st.sidebar.header("Cuadro maestro — Variables del ciclo")
 
+CAPACIDAD_MAXIMA = 9000
+
 prod_corte = st.sidebar.number_input(
     "Producción en corte",
     min_value=0.0,
-    value=8000.0,
+    max_value=CAPACIDAD_MAXIMA,
+    value=min(6000.0, CAPACIDAD_MAXIMA),
     step=100.0
 )
 
