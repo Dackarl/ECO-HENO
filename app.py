@@ -173,43 +173,58 @@ st.divider()
 # ============================================================
 # 9) PANEL VISUAL (4 GRÁFICAS)
 # ============================================================
-st.subheader("Panel visual (4 gráficas)")
+
+st.subheader("Panel visual operativo")
+
+# Crear columna de pérdida REAL
+sim["Perdida_real"] = prod_corte - sim["Produccion_Estimada"]
 
 col1, col2 = st.columns(2)
 
+# 1 — Producción vs día
 fig1 = px.line(
     sim,
     x="Dia_Empaque",
     y="Produccion_Estimada",
     markers=True,
-    title="Producción estimada por día"
+    title="Producción estimada por día de empaque"
 )
+
 col1.plotly_chart(fig1, use_container_width=True)
 
+
+# 2 — Pérdida real vs día
 fig2 = px.bar(
     sim,
     x="Dia_Empaque",
-    y="Produccion luego de perdidas",
-    title="Brecha respecto al volumen de corte"
+    y="Perdida_real",
+    title="Volumen perdido por retraso en empaque"
 )
+
 col2.plotly_chart(fig2, use_container_width=True)
+
 
 col3, col4 = st.columns(2)
 
+# 3 — % de pérdida (NO rendimiento)
 fig3 = px.line(
     sim,
     x="Dia_Empaque",
     y="Perdida_%",
     markers=True,
-    title="Rendimiento del proceso (%)"
+    title="Pérdida porcentual del proceso"
 )
+
 col3.plotly_chart(fig3, use_container_width=True)
 
-fig4 = px.bar(
+
+# 4 — Detectar cuello de botella
+fig4 = px.scatter(
     sim,
     x="Dia_Empaque",
-    y="Cambio_marginal",
-    title="Cambio marginal entre días"
+    y="Produccion_Estimada",
+    size="Produccion_Estimada",
+    title="Impacto del día de empaque en la producción"
 )
-col4.plotly_chart(fig4, use_container_width=True)
 
+col4.plotly_chart(fig4, use_container_width=True)
