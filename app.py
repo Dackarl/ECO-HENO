@@ -207,6 +207,7 @@ col2.plotly_chart(fig4, use_container_width=True)
 # 3 — Avance del proceso (barras)
 
 sim["Produccion_Corte"] = prod_corte
+sim["Produccion_Acumulada"] = sim["Produccion_Estimada"].cumsum()
 
 import plotly.graph_objects as go
 
