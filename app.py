@@ -23,7 +23,7 @@ def cargar_artifacts():
 
 modelo, columnas_modelo = cargar_artifacts()
 
-with st.expander("🔎 Columnas que espera el modelo (debug)"):
+with st.expander("Columnas que espera el modelo (debug)"):
     st.write(columnas_modelo)
 
 # ============================================================
