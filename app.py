@@ -130,7 +130,6 @@ def simular_dias(prod_corte, sector, mes):
     sim["Perdida_%"] = (sim["Produccion_Estimada"] / prod_corte) * 100
 
     base = sim.loc[sim["Dia_Empaque"] == 1, "Produccion_Estimada"].iloc[0]
-    sim["Delta_vs_dia1"] = sim["Produccion_Estimada"] - base
     sim["Cambio_marginal"] = sim["Produccion_Estimada"].diff()
 
     return sim
