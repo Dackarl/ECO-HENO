@@ -1,88 +1,214 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import joblib
 import plotly.express as px
 
-# Configuración inicial de la página
-st.set_page_config(page_title="Tablero Maestro ECO HENO", layout="wide")
+# ============================================================
+# 1) CONFIG
+# ============================================================
+st.set_page_config(page_title="EcoHeno 1.0", layout="wide")
 
-# 1. CARGA DE RECURSOS
-# Se cargan los archivos generados en el entrenamiento (RandomForest y lista de columnas)
+st.title("EcoHeno 1.0 — Predicción de producción de heno")
+st.caption("Cuadro maestro de decisión: predicción + simulación + visualización ejecutiva.")
+
+# ============================================================
+# 2) CARGA DE MODELO + COLUMNAS (para evitar el error de sklearn)
+# ============================================================
 @st.cache_resource
-def cargar_recursos():
-    try:
-        modelo = joblib.load("modelo_ecoheno.pkl")
-        columnas = joblib.load("columnas_modelo.pkl")
-        return modelo, columnas
-    except Exception as e:
-        st.error("Error: Asegurese de tener 'modelo_ecoheno.pkl' y 'columnas_modelo.pkl' en el repositorio.")
-        return None, None
+def cargar_artifacts():
+    modelo = joblib.load("modelo_ecoheno.pkl")
+    columnas = joblib.load("columnas_modelo.pkl")  # lista exacta del entrenamiento
+    return modelo, columnas
 
-modelo, columnas = cargar_recursos()
+modelo, columnas_modelo = cargar_artifacts()
 
-# 2. FUNCIONES DE CÁLCULO
-# predecir_produccion: Calcula el valor puntual basado en las 4 variables maestras
-def predecir_produccion(modelo, columnas, prod_corte, dia_final, sector, mes):
-    df_input = pd.DataFrame([{
+with st.expander("🔎 Columnas que espera el modelo (debug)"):
+    st.write(columnas_modelo)
+
+# ============================================================
+# 3) CONSTRUIR X CON COLUMNAS EXACTAS
+# ============================================================
+def construir_X(prod_corte, dia_final, sector, mes):
+    """
+    Crea el vector de entrada X con las MISMAS columnas del entrenamiento.
+    Rellena con mapeo robusto para no romperse si los nombres cambian.
+    """
+    X = pd.DataFrame(np.zeros((1, len(columnas_modelo))), columns=columnas_modelo)
+
+    # Mapeo robusto: intenta encajar con varios nombres posibles
+    alias = {
+        # producción en corte
         "PROD_CORTE": prod_corte,
+        "Produccion_corte": prod_corte,
+        "produccion_corte": prod_corte,
+
+        # día final empaque
         "DIA_FINAL": dia_final,
+        "Dia_final": dia_final,
+        "DIA_EMPAQUE": dia_final,
+        "Dia_Empaque": dia_final,
+        "Dia_Empaque_Final": dia_final,
+
+        # sector
         "SECTOR": sector,
-        "MES": mes
-    }])
-    df_input = df_input.reindex(columns=columnas, fill_value=0)
-    return float(modelo.predict(df_input)[0])
+        "Sector": sector,
+        "sector": sector,
 
-# simular_ciclo: Genera la tabla comparativa del dia 1 al 6 para el Cuadro Maestro
-def simular_ciclo(modelo, columnas, prod_corte, sector, mes):
-    datos = []
+        # mes
+        "MES": mes,
+        "Mes": mes,
+        "mes": mes,
+    }
+
+    # Solo llena las columnas que existan en columnas_modelo
+    for col in X.columns:
+        if col in alias:
+            X.loc[0, col] = alias[col]
+
+    return X
+
+# ============================================================
+# 4) PREDICCIÓN
+# ============================================================
+def predecir_produccion(prod_corte, dia_final, sector, mes):
+    X = construir_X(prod_corte, dia_final, sector, mes)
+    pred = float(modelo.predict(X)[0])
+    # por si el modelo devuelve negativos por ruido
+    return max(pred, 0.0)
+
+# ============================================================
+# 5) SIDEBAR (selectores)
+# ============================================================
+st.sidebar.header("Cuadro maestro — Variables del ciclo")
+
+prod_corte = st.sidebar.number_input(
+    "Producción en corte",
+    min_value=0.0,
+    value=8000.0,
+    step=100.0
+)
+
+dia_final = st.sidebar.slider(
+    "Día final de empaque",
+    min_value=1,
+    max_value=6,
+    value=3
+)
+
+sector = st.sidebar.selectbox(
+    "Sector",
+    options=[1, 2, 3, 4, 5, 6],
+    index=0
+)
+
+mes = st.sidebar.slider(
+    "Mes",
+    min_value=1,
+    max_value=12,
+    value=1
+)
+
+# botón (opcional, pero se ve profesional)
+btn = st.sidebar.button("Predecir")
+
+# ============================================================
+# 6) SIMULACIÓN (días 1 a 6)
+# ============================================================
+def simular_dias(prod_corte, sector, mes):
+    filas = []
     for d in range(1, 7):
-        p = predecir_produccion(modelo, columnas, prod_corte, d, sector, mes)
-        datos.append({"Dia_Empaque": d, "Produccion_Predicha": round(p, 2)})
-    
-    df = pd.DataFrame(datos)
-    # Cálculo de indicadores de eficiencia y pérdida
-    df["Perdida_Acumulada"] = df["Produccion_Predicha"].iloc[0] - df["Produccion_Predicha"]
-    df["Perdida_%"] = (df["Produccion_Predicha"] / prod_corte) * 100
-    df["Cambio_Marginal"] = df["Produccion_Predicha"].diff()
-    return df
+        pred = predecir_produccion(prod_corte, d, sector, mes)
+        filas.append({
+            "Dia_Empaque": d,
+            "Produccion_Estimada": pred
+        })
 
-# 3. INTERFAZ DE USUARIO (CUADRO MAESTRO)
-st.title("Control de Produccion ECO HENO")
+    sim = pd.DataFrame(filas)
 
-if modelo:
-    # Sidebar para ingreso de datos de producción
-    st.sidebar.header("Entrada de Datos")
-    prod_corte = st.sidebar.number_input("Produccion Inicial (Corte)", min_value=0.0, value=7500.0)
-    sector = st.sidebar.selectbox("Sector", options=list(range(1, 9)), index=2)
-    mes = st.sidebar.selectbox("Mes de Operacion", options=list(range(1, 13)), index=5)
-    dia_objetivo = st.sidebar.slider("Dia de Empaque Objetivo", 1, 6, 4)
+    # Métricas claras (sin “No_recuperado” confuso)
+    sim["Brecha_vs_corte"] = prod_corte - sim["Produccion_Estimada"]
+    sim["Rendimiento_%"] = (sim["Produccion_Estimada"] / prod_corte) * 100
 
-    # Procesamiento
-    df_maestro = simular_ciclo(modelo, columnas, prod_corte, sector, mes)
-    pred_actual = df_maestro.loc[df_maestro["Dia_Empaque"] == dia_objetivo, "Produccion_Predicha"].values[0]
-    eficiencia_actual = df_maestro.loc[df_maestro["Dia_Empaque"] == dia_objetivo, "Eficiencia_%"].values[0]
+    base = sim.loc[sim["Dia_Empaque"] == 1, "Produccion_Estimada"].iloc[0]
+    sim["Delta_vs_dia1"] = sim["Produccion_Estimada"] - base
+    sim["Cambio_marginal"] = sim["Produccion_Estimada"].diff()
 
-    # 4. VISUALIZACIÓN DE INDICADORES
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Prediccion Final", f"{pred_actual:.2f} kg")
-    with col2:
-        st.metric("Perdida Estimada", f"{eficiencia_actual:.1f}%")
-    with col3:
-        st.metric("Sector Seleccionado", f"Sector {sector}")
+    return sim
 
-    # Gráfico de tendencia
-    st.subheader("Tendencia de Produccion por Dia")
-    fig = px.line(df_maestro, x="Dia_Empaque", y="Produccion_Predicha", markers=True)
-    st.plotly_chart(fig, use_container_width=True)
+sim = simular_dias(prod_corte, sector, mes)
 
-    # Tabla Maestra
-    st.subheader("Cuadro Maestro de Indicadores")
-    st.dataframe(df_maestro, use_container_width=True)
+# ============================================================
+# 7) KPIs (cuadro superior)
+# ============================================================
+pred_sel = sim.loc[sim["Dia_Empaque"] == dia_final, "Produccion_Estimada"].iloc[0]
+brecha = prod_corte - pred_sel
+rendimiento = (pred_sel / prod_corte) * 100
 
-    # Nota Técnica: El umbral de elasticidad ayuda a decidir el momento óptimo de empaque
-    # Basado en el mayor cambio marginal negativo
-    id_optimo = df_maestro["Cambio_Marginal"].abs().idxmax() if not df_maestro["Cambio_Marginal"].isnull().all() else 0
-    dia_optimo = df_maestro.loc[id_optimo, "Dia_Empaque"]
-    
-    st.info(f"Nota: El mayor cambio en la tasa de secado se observa en el Dia {dia_optimo}.")
+dia_optimo = int(sim.loc[sim["Produccion_Estimada"].idxmax(), "Dia_Empaque"])
+mejor_pred = float(sim["Produccion_Estimada"].max())
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Producción estimada", f"{pred_sel:,.2f}")
+c2.metric("Rendimiento del proceso", f"{rendimiento:,.2f}%")
+c3.metric("Brecha vs corte", f"{brecha:,.2f}")
+c4.metric("Día recomendado", f"{dia_optimo}")
+
+st.divider()
+
+# ============================================================
+# 8) TABLA DE SIMULACIÓN
+# ============================================================
+st.subheader("Simulación por día de empaque (1 a 6)")
+st.dataframe(sim, use_container_width=True)
+
+st.info(
+    f"Según el modelo, el mejor día es el **día {dia_optimo}**, "
+    f"con una producción estimada de **{mejor_pred:,.2f}**."
+)
+
+st.divider()
+
+# ============================================================
+# 9) PANEL VISUAL (4 GRÁFICAS)
+# ============================================================
+st.subheader("Panel visual (4 gráficas)")
+
+col1, col2 = st.columns(2)
+
+fig1 = px.line(
+    sim,
+    x="Dia_Empaque",
+    y="Produccion_Estimada",
+    markers=True,
+    title="Producción estimada por día"
+)
+col1.plotly_chart(fig1, use_container_width=True)
+
+fig2 = px.bar(
+    sim,
+    x="Dia_Empaque",
+    y="Brecha_vs_corte",
+    title="Brecha respecto al volumen de corte"
+)
+col2.plotly_chart(fig2, use_container_width=True)
+
+col3, col4 = st.columns(2)
+
+fig3 = px.line(
+    sim,
+    x="Dia_Empaque",
+    y="Rendimiento_%",
+    markers=True,
+    title="Rendimiento del proceso (%)"
+)
+col3.plotly_chart(fig3, use_container_width=True)
+
+fig4 = px.bar(
+    sim,
+    x="Dia_Empaque",
+    y="Cambio_marginal",
+    title="Cambio marginal entre días"
+)
+col4.plotly_chart(fig4, use_container_width=True)
+
