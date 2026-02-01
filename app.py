@@ -149,7 +149,7 @@ mejor_pred = float(sim["Produccion_Estimada"].max())
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Producción estimada", f"{pred_sel:,.2f}")
-c2.metric("Rendimiento del proceso", f"{(rendimiento-100):,.2f}%")
+c2.metric("Rendimiento del proceso", f"{(100-rendimiento):,.2f}%")
 c3.metric("Brecha vs corte", f"{brecha:,.2f}")
 c4.metric("Día recomendado", f"{dia_optimo}")
 
