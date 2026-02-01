@@ -213,22 +213,20 @@ import plotly.graph_objects as go
 
 fig = go.Figure()
 
-# Barra base (corte)
 fig.add_trace(go.Bar(
     x=["Corte"],
     y=[prod_corte],
     name="Producción en corte"
 ))
 
-# Barras del proceso
 fig.add_trace(go.Bar(
     x=[f"Día {d}" for d in sim["Dia_Empaque"]],
-    y=sim["Produccion_Estimada"],
-    name="Producción recuperada"
+    y=sim["Produccion_Acumulada"],
+    name="Producción acumulada"
 ))
 
 fig.update_layout(
-    title="Avance del proceso de recuperación de producción",
+    title="Avance acumulado del proceso de empaque",
     barmode="group"
 )
 
