@@ -42,7 +42,7 @@ def simular_ciclo(modelo, columnas, prod_corte, sector, mes):
     df = pd.DataFrame(datos)
     # Cálculo de indicadores de eficiencia y pérdida
     df["Perdida_Acumulada"] = df["Produccion_Predicha"].iloc[0] - df["Produccion_Predicha"]
-    df["Eficiencia_%"] = (df["Produccion_Predicha"] / prod_corte) * 100
+    df["Perdida_%"] = (df["Produccion_Predicha"] / prod_corte) * 100
     df["Cambio_Marginal"] = df["Produccion_Predicha"].diff()
     return df
 
@@ -67,7 +67,7 @@ if modelo:
     with col1:
         st.metric("Prediccion Final", f"{pred_actual:.2f} kg")
     with col2:
-        st.metric("Eficiencia Estimada", f"{eficiencia_actual:.1f}%")
+        st.metric("Perdida Estimada", f"{eficiencia_actual:.1f}%")
     with col3:
         st.metric("Sector Seleccionado", f"Sector {sector}")
 
