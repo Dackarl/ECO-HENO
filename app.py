@@ -145,7 +145,7 @@ pred_sel = sim.loc[sim["Dia_Empaque"] == dia_final, "Produccion_Estimada"].iloc[
 brecha = prod_corte - pred_sel
 rendimiento = (pred_sel / prod_corte) * 100
 
-dia_optimo = int(sim.loc[sim["Produccion_Estimada"].idxmax(), "Dia_Empaque"].iloc[0])
+dia_optimo = int(sim.loc[sim["Produccion_Estimada"].idxmax(), "Dia_Empaque"])
 mejor_pred = float(sim["Produccion_Estimada"].max())
 
 c1, c2, c3, c4 = st.columns(4)
@@ -188,7 +188,7 @@ col1.plotly_chart(fig1, use_container_width=True)
 fig2 = px.bar(
     sim,
     x="Dia_Empaque",
-    y="Brecha_vs_corte",
+    y="Produccion luego de perdidas",
     title="Brecha respecto al volumen de corte"
 )
 col2.plotly_chart(fig2, use_container_width=True)
@@ -198,7 +198,7 @@ col3, col4 = st.columns(2)
 fig3 = px.line(
     sim,
     x="Dia_Empaque",
-    y="Rendimiento_%",
+    y="Perdida_%",
     markers=True,
     title="Rendimiento del proceso (%)"
 )
